@@ -1,0 +1,16 @@
+{
+  "name": "Painel de Infrações — Nova Macabu",
+  "short_name": "Infrações",
+  "description": "Painel de gestão das infrações de velocidade (SharePoint · Make)",
+  "lang": "pt-BR",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#232B33",
+  "theme_color": "#232B33",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
