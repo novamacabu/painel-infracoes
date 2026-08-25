@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painel de Infrações — Nova Macabu</title>
+<!--
+  ═══════════════════════════════════════════════════════════════════
+  PAINEL DE INFRAÇÕES DE VELOCIDADE — TRANSPORTADORA NOVA MACABU
+  Protótipo integrado às listas SharePoint via webhook Make.
+
+  COMO CONECTAR AOS DADOS REAIS:
+  1. No Make, crie um cenário: Webhook (Custom webhook) →
+     SharePoint "Make an API Call" (lista Área Restrita) →
+     SharePoint "Make an API Call" (lista Velocidade Excedida) →
+     SharePoint "Make an API Call" (Cadastro Motoristas) →
+     Webhook Response (Status 200, header:
+       Access-Control-Allow-Origin: *  |  Content-Type: application/json)
+  2. O Body do Webhook Response deve montar o JSON no contrato descrito
+     no painel "Conectar dados reais" dentro do dashboard.
+  3. Cole a URL do webhook no campo de configuração do dashboard
+     (ou edite a constante WEBHOOK_URL no início do <script>).
+  Custo estimado: ~4 créditos Make por atualização.
+  ═══════════════════════════════════════════════════════════════════
+-->
+<meta name="theme-color" content="#232B33">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Infrações">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Saira+Semi+Condensed:wght@500;600;700&family=Saira:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --asfalto:#232B33;          /* header — grafite de pista */
+  --asfalto-2:#2E3942;
+  --pista:#F2F3F0;            /* fundo — concreto claro */
+  --card:#FFFFFF;
+  --texto:#1D242B;
+  --texto-2:#5C6670;
+  --linha:#E3E6E2;
+  --faixa-amarela:#F2B705;    /* faixa central da rodovia — acento */
+  --sinal-vermelho:#C1121F;   /* anel da placa de velocidade */
+  --gravissima:#8E1616;
+  --grave:#D9480F;
+  --media:#E8A013;
+  --baixa:#2F7D4F;
+  --ok:#2F7D4F;
+  --pendente:#B7791F;
+  --radius:10px;
+  --sombra:0 1px 3px rgba(29,36,43,.08);
+  --f-display:"Saira Semi Condensed", "Arial Narrow", sans-serif;
+  --f-body:"Saira", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{font-family:var(--f-body);background:var(--pista);color:var(--texto);font-size:14px;line-height:1.5}
+.wrap{max-width:1280px;margin:0 auto;padding:16px}
+
+/* ── Cabeçalho ─────────────────────────────────────────── */
+.topo{background:var(--asfalto);color:#fff;border-radius:var(--radius);padding:16px 22px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:relative;overflow:hidden}
+.topo::after{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;
+  background:repeating-linear-gradient(90deg,var(--faixa-amarela) 0 34px,transparent 34px 58px);}
+.marca{display:flex;align-items:center;gap:14px;min-width:0}
+.placa-logo{width:46px;height:46px;border-radius:50%;background:#fff;border:6px solid var(--sinal-vermelho);
+  display:flex;align-items:center;justify-content:center;font-family:var(--f-display);font-weight:700;font-size:17px;color:#111;flex:none}
+.titulo h1{font-family:var(--f-display);font-weight:600;font-size:21px;letter-spacing:.3px;line-height:1.15}
+.titulo p{font-size:12px;color:rgba(255,255,255,.65)}
+.topo-acoes{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:5px 12px;border-radius:999px;letter-spacing:.3px}
+.pill .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.pill.demo{background:rgba(242,183,5,.15);color:var(--faixa-amarela)}
+.pill.demo .dot{background:var(--faixa-amarela)}
+.pill.live{background:rgba(63,166,106,.18);color:#7BD8A2}
+.pill.live .dot{background:#4BC57F}
+.pill.erro{background:rgba(224,73,73,.18);color:#F1948F}
+.pill.erro .dot{background:#E45B52}
+.btn{font-family:var(--f-body);font-size:13px;font-weight:600;border:none;border-radius:8px;padding:9px 15px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:filter .15s}
+.btn:hover{filter:brightness(1.08)}
+.btn:focus-visible{outline:3px solid var(--faixa-amarela);outline-offset:2px}
+.btn-amarelo{background:var(--faixa-amarela);color:#231F00}
+.btn-fantasma{background:rgba(255,255,255,.12);color:#fff}
+.btn-claro{background:#EEF0ED;color:var(--texto)}
+.btn-vermelho{background:var(--sinal-vermelho);color:#fff}
+.btn[disabled]{opacity:.55;cursor:wait}
+.giro{display:inline-block;animation:girar 1s linear infinite}
+@keyframes girar{to{transform:rotate(360deg)}}
+.atualizado-em{font-size:11.5px;color:rgba(255,255,255,.55);width:100%;text-align:right}
+
+/* ── Aviso / faixas de estado ──────────────────────────── */
+.aviso{border-radius:var(--radius);padding:11px 16px;font-size:13px;margin-top:12px;display:flex;gap:10px;align-items:flex-start}
+.aviso.demo{background:#FBF3DC;color:#6A4E10;border:1px solid #EFDCA8}
+.aviso.erro{background:#FBE3E1;color:#7C1D17;border:1px solid #F2BDB8}
+.aviso.ok{background:#DFF0E5;color:#0E5C3A;border:1px solid #BFE0CC}
+.aviso b{font-weight:600}
+.aviso .fechar{margin-left:auto;background:none;border:none;cursor:pointer;font-size:15px;color:inherit;opacity:.6}
+.oculto{display:none!important}
+
+/* ── Filtros ───────────────────────────────────────────── */
+.filtros{background:var(--card);border-radius:var(--radius);box-shadow:var(--sombra);padding:13px 16px;margin-top:12px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
+.campo{display:flex;flex-direction:column;gap:4px}
+.campo label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--texto-2)}
+.campo select,.campo input[type="search"]{font-family:var(--f-body);font-size:13px;padding:7px 10px;border:1.5px solid var(--linha);border-radius:7px;background:#FBFCFA;color:var(--texto);min-width:130px}
+.campo select:focus-visible,.campo input:focus-visible{outline:2.5px solid var(--faixa-amarela);outline-offset:1px;border-color:transparent}
+.campo input[type="search"]{min-width:180px}
+.filtros .limpar{margin-left:auto}
+.chip-filtro-ativo{font-size:11.5px;color:var(--texto-2)}
+
+/* ── KPIs ──────────────────────────────────────────────── */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:12px;margin-top:12px}
+.kpi{background:var(--card);border-radius:var(--radius);box-shadow:var(--sombra);padding:16px 18px 14px;border-top:4px solid transparent}
+.kpi .rotulo{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--texto-2)}
+.kpi .valor{font-family:var(--f-display);font-weight:700;font-size:32px;line-height:1.1;margin-top:3px}
+.kpi .sub{font-size:12px;color:var(--texto-2);margin-top:3px}
+.kpi .sub.up{color:#B03A2E;font-weight:600}
+.kpi .sub.down{color:var(--ok);font-weight:600}
+.kpi.k-total{border-top-color:var(--asfalto)}
+.kpi.k-graves{border-top-color:var(--grave)}
+.kpi.k-motoristas{border-top-color:var(--faixa-amarela)}
+.kpi.k-excesso{border-top-color:var(--sinal-vermelho)}
+.kpi.k-notif{border-top-color:var(--ok)}
+
+/* ── Gráficos ──────────────────────────────────────────── */
+.linha-graficos{display:grid;gap:12px;margin-top:12px}
+.g-1{grid-template-columns:1.9fr 1fr}
+.g-2{grid-template-columns:1fr 1fr}
+.grafico{background:var(--card);border-radius:var(--radius);box-shadow:var(--sombra);padding:16px 18px}
+.grafico h3{font-family:var(--f-display);font-weight:600;font-size:15px;letter-spacing:.2px}
+.grafico .dica{font-size:11.5px;color:var(--texto-2);margin-bottom:10px}
+.grafico canvas{max-height:280px}
+
+/* ── Tabela ────────────────────────────────────────────── */
+.secao-tabela{background:var(--card);border-radius:var(--radius);box-shadow:var(--sombra);padding:16px 18px;margin-top:12px}
+.tabela-topo{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.tabela-topo h3{font-family:var(--f-display);font-weight:600;font-size:15px}
+.tabela-topo .cont{font-size:12px;color:var(--texto-2)}
+.tabela-topo .acoes{margin-left:auto;display:flex;gap:8px}
+.rolagem{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:900px}
+thead th{text-align:left;padding:9px 10px;border-bottom:2px solid var(--linha);font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--texto-2);white-space:nowrap;cursor:pointer;user-select:none}
+thead th:hover{color:var(--texto)}
+thead th .seta{font-size:9px;opacity:.7}
+tbody td{padding:9px 10px;border-bottom:1px solid #F1F2EF;vertical-align:middle}
+tbody tr:hover{background:#FAFBF7}
+.mot-nome{font-weight:600}
+.mot-mat{font-size:11.5px;color:var(--texto-2)}
+.nao-cadastrado{font-style:italic;color:var(--texto-2)}
+.badge{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.4px;padding:3px 9px;border-radius:999px;text-transform:uppercase;white-space:nowrap}
+.b-gravissima{background:#F6DEDE;color:var(--gravissima)}
+.b-grave{background:#FBE7DA;color:var(--grave)}
+.b-media{background:#FBF0D3;color:#8A5E0A}
+.b-baixa{background:#DFF0E5;color:var(--baixa)}
+.b-lista{background:#E8EBEE;color:#42505C;text-transform:none;font-weight:600}
+.vel-celula{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.vel-num{font-family:var(--f-display);font-weight:700;font-size:16px}
+.placa-limite{width:30px;height:30px;border-radius:50%;background:#fff;border:4px solid var(--sinal-vermelho);display:inline-flex;align-items:center;justify-content:center;font-family:var(--f-display);font-weight:700;font-size:11.5px;color:#111;flex:none}
+.excesso{font-size:11.5px;font-weight:700;padding:2px 7px;border-radius:6px;white-space:nowrap}
+.e-gravissima{background:var(--gravissima);color:#fff}
+.e-grave{background:var(--grave);color:#fff}
+.e-media{background:var(--media);color:#3C2A00}
+.e-baixa{background:var(--baixa);color:#fff}
+.notif{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600}
+.notif.sim{color:var(--ok)}
+.notif.nao{color:var(--pendente)}
+.paginacao{display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:12px;font-size:12.5px;color:var(--texto-2)}
+.paginacao button{background:#EEF0ED;border:none;border-radius:7px;padding:6px 12px;font-weight:600;cursor:pointer;font-family:var(--f-body)}
+.paginacao button[disabled]{opacity:.4;cursor:default}
+.vazio{text-align:center;padding:34px 10px;color:var(--texto-2)}
+
+/* ── Painel de conexão ─────────────────────────────────── */
+.conexao{background:var(--card);border-radius:var(--radius);box-shadow:var(--sombra);margin-top:12px;overflow:hidden}
+.conexao summary{cursor:pointer;padding:14px 18px;font-family:var(--f-display);font-weight:600;font-size:15px;list-style:none;display:flex;align-items:center;gap:10px}
+.conexao summary::-webkit-details-marker{display:none}
+.conexao summary .indicador{transition:transform .2s}
+.conexao[open] summary .indicador{transform:rotate(90deg)}
+.conexao-corpo{padding:0 18px 18px;border-top:1px solid var(--linha)}
+.conexao-corpo p{margin:12px 0 8px;color:var(--texto-2);font-size:13px;max-width:70ch}
+.linha-url{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.linha-url input{flex:1;min-width:260px;font-family:var(--f-body);font-size:13px;padding:9px 12px;border:1.5px solid var(--linha);border-radius:7px}
+.linha-url input:focus-visible{outline:2.5px solid var(--faixa-amarela);border-color:transparent}
+pre{background:#20272E;color:#D8E0E8;font-size:12px;border-radius:8px;padding:14px 16px;overflow-x:auto;line-height:1.55;margin:8px 0}
+pre .c{color:#8AA3B8}
+.passos{margin:8px 0 0 18px;font-size:13px;color:var(--texto)}
+.passos li{margin-bottom:6px;max-width:75ch}
+code{background:#EEF0ED;padding:1px 6px;border-radius:5px;font-size:12px}
+
+/* ── Rodapé ────────────────────────────────────────────── */
+.rodape{margin:16px 4px 6px;font-size:11.5px;color:var(--texto-2);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+
+@media (max-width:900px){.g-1,.g-2{grid-template-columns:1fr}}
+@media (max-width:640px){
+  .topo{padding:14px}
+  .titulo h1{font-size:17px}
+  .kpi .valor{font-size:26px}
+  .filtros .campo{flex:1 1 45%}
+  .filtros .campo select,.filtros .campo input{width:100%;min-width:0}
+  .campo select,.campo input[type="search"],.linha-url input,.login-box input{font-size:16px}
+  .btn{padding:11px 16px}
+  .paginacao button{padding:10px 16px}
+  thead th,tbody td{padding:11px 10px}
+}
+@media print{
+  body{background:#fff}
+  .filtros,.topo-acoes,.conexao,.paginacao,.tabela-topo .acoes,.aviso{display:none!important}
+  .grafico,.kpi,.secao-tabela{box-shadow:none;border:1px solid var(--linha)}
+}
+
+/* ── Login ─────────────────────────────────────────────── */
+.tela-login{position:fixed;inset:0;background:var(--asfalto);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
+.tela-login::after{content:"";position:absolute;left:0;right:0;bottom:0;height:6px;background:repeating-linear-gradient(90deg,var(--faixa-amarela) 0 34px,transparent 34px 58px)}
+.login-box{background:#fff;border-radius:14px;padding:30px 26px 24px;width:100%;max-width:390px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.login-box .placa-logo{margin:0 auto 12px;width:58px;height:58px;font-size:21px;border-width:7px}
+.login-box h2{font-family:var(--f-display);font-weight:600;font-size:19px}
+.login-box .sub{font-size:12.5px;color:var(--texto-2);margin:4px 0 18px}
+.login-box input{width:100%;padding:11px 13px;border-radius:8px;border:1.5px solid var(--linha);font-size:14px;font-family:var(--f-body);margin-bottom:10px;background:#FBFCFA}
+.login-box input:focus-visible{outline:2.5px solid var(--faixa-amarela);border-color:transparent}
+.login-box .btn-entrar{width:100%;padding:12px;border:none;border-radius:8px;font-family:var(--f-body);font-weight:700;font-size:14px;cursor:pointer;background:var(--faixa-amarela);color:#231F00}
+.login-box .btn-entrar[disabled]{opacity:.6;cursor:wait}
+.login-box .msg{font-size:12.5px;margin-top:10px;padding:7px 9px;border-radius:6px;display:none}
+.login-box .msg.erro{display:block;background:#F6DCD7;color:#8C3326}
+.login-box .msg.info{display:block;background:#EEF0ED;color:var(--texto-2)}
+.login-box .nota{font-size:11px;color:var(--texto-2);margin-top:14px;line-height:1.5}
+</style>
+</head>
+<body>
+
+<!-- Tela de login -->
+<div id="tela-login" class="tela-login">
+  <div class="login-box">
+    <div class="placa-logo" aria-hidden="true">40</div>
+    <h2>Painel de Infrações</h2>
+    <div class="sub">Transportadora Nova Macabu · acesso restrito</div>
+    <input id="login-user" type="text" placeholder="Usuário" autocomplete="username">
+    <input id="login-senha" type="password" placeholder="Senha" autocomplete="current-password">
+    <button id="btn-entrar" class="btn-entrar">Entrar</button>
+    <div id="login-msg" class="msg"></div>
+    <div class="nota">A sessão dura enquanto a página estiver aberta.<br>Ao recarregar, entre novamente.</div>
+  </div>
+</div>
+
+<div class="wrap oculto" id="app">
+
+  <!-- Cabeçalho -->
+  <header class="topo">
+    <div class="marca">
+      <div class="placa-logo" aria-hidden="true">40</div>
+      <div class="titulo">
+        <h1>Painel de Infrações de Velocidade</h1>
+        <p>Transportadora Nova Macabu · Operacional</p>
+      </div>
+    </div>
+    <div class="topo-acoes">
+      <span id="quem" class="pill" style="background:rgba(255,255,255,.12);color:#fff"></span>
+      <span id="status-pill" class="pill demo"><span class="dot"></span><span id="status-texto">Dados de demonstração</span></span>
+      <button id="btn-disparar" class="btn btn-vermelho" title="Executa o cenário de envio de notificações no Make">📨 Disparar envio</button>
+      <button id="btn-atualizar" class="btn btn-amarelo">↻ Atualizar dados</button>
+      <button id="btn-config" class="btn btn-fantasma">Conexão</button>
+      <button id="btn-sair" class="btn btn-fantasma" title="Encerrar sessão">Sair</button>
+    </div>
+    <div class="atualizado-em" id="atualizado-em"></div>
+  </header>
+
+  <!-- Aviso modo demonstração -->
+  <div id="aviso-demo" class="aviso demo">
+    <span aria-hidden="true">⚠</span>
+    <div><b>Conectando ao SharePoint…</b> O painel busca as infrações reais automaticamente após o login. Se esta faixa não sumir em alguns segundos, clique em <b>Atualizar dados</b>
+    ou veja o painel <b>Conectar dados reais</b> ao final da página.</div>
+    <button class="fechar" onclick="this.parentElement.classList.add('oculto')" aria-label="Fechar aviso">✕</button>
+  </div>
+  <div id="aviso-erro" class="aviso erro oculto">
+    <span aria-hidden="true">✕</span>
+    <div id="aviso-erro-texto"></div>
+    <button class="fechar" onclick="this.parentElement.classList.add('oculto')" aria-label="Fechar aviso">✕</button>
+  </div>
+  <div id="aviso-ok" class="aviso ok oculto">
+    <span aria-hidden="true">✔</span>
+    <div id="aviso-ok-texto"></div>
+    <button class="fechar" onclick="this.parentElement.classList.add('oculto')" aria-label="Fechar aviso">✕</button>
+  </div>
+
+  <!-- Filtros -->
+  <section class="filtros" aria-label="Filtros">
+    <div class="campo">
+      <label for="f-periodo">Período</label>
+      <select id="f-periodo">
+        <option value="7">Últimos 7 dias</option>
+        <option value="15">Últimos 15 dias</option>
+        <option value="30" selected>Últimos 30 dias</option>
+        <option value="60">Últimos 60 dias</option>
+        <option value="90">Últimos 90 dias</option>
+        <option value="0">Todo o histórico</option>
+      </select>
+    </div>
+    <div class="campo">
+      <label for="f-classificacao">Classificação</label>
+      <select id="f-classificacao">
+        <option value="">Todas</option>
+        <option value="Gravíssima">Gravíssima</option>
+        <option value="Grave">Grave</option>
+        <option value="Média">Média</option>
+        <option value="Baixa">Baixa</option>
+      </select>
+    </div>
+    <div class="campo">
+      <label for="f-lista">Origem</label>
+      <select id="f-lista">
+        <option value="">Ambas as listas</option>
+        <option value="Área Restrita">Área Restrita</option>
+        <option value="Velocidade Excedida">Velocidade Excedida</option>
+      </select>
+    </div>
+    <div class="campo">
+      <label for="f-motorista">Motorista</label>
+      <select id="f-motorista"><option value="">Todos</option></select>
+    </div>
+    <div class="campo">
+      <label for="f-notif">Notificação</label>
+      <select id="f-notif">
+        <option value="">Todas</option>
+        <option value="sim">Notificadas</option>
+        <option value="nao">Pendentes</option>
+      </select>
+    </div>
+    <div class="campo">
+      <label for="f-busca">Buscar</label>
+      <input type="search" id="f-busca" placeholder="Motorista, veículo, local…">
+    </div>
+    <button id="btn-limpar" class="btn btn-claro limpar">Limpar filtros</button>
+  </section>
+
+  <!-- KPIs -->
+  <section class="kpis" aria-label="Indicadores">
+    <div class="kpi k-total">
+      <div class="rotulo">Infrações no período</div>
+      <div class="valor" id="kpi-total">–</div>
+      <div class="sub" id="kpi-total-var"></div>
+    </div>
+    <div class="kpi k-graves">
+      <div class="rotulo">Graves + Gravíssimas</div>
+      <div class="valor" id="kpi-graves">–</div>
+      <div class="sub" id="kpi-graves-sub"></div>
+    </div>
+    <div class="kpi k-motoristas">
+      <div class="rotulo">Motoristas envolvidos</div>
+      <div class="valor" id="kpi-motoristas">–</div>
+      <div class="sub" id="kpi-motoristas-sub"></div>
+    </div>
+    <div class="kpi k-excesso">
+      <div class="rotulo">Excesso médio</div>
+      <div class="valor" id="kpi-excesso">–</div>
+      <div class="sub">acima do limite da via</div>
+    </div>
+    <div class="kpi k-notif">
+      <div class="rotulo">Notificadas via WhatsApp</div>
+      <div class="valor" id="kpi-notif">–</div>
+      <div class="sub" id="kpi-notif-sub"></div>
+    </div>
+  </section>
+
+  <!-- Gráficos linha 1 -->
+  <section class="linha-graficos g-1">
+    <div class="grafico">
+      <h3>Evolução diária por gravidade</h3>
+      <div class="dica">Composição das infrações dia a dia no período filtrado</div>
+      <canvas id="ch-tendencia" height="120"></canvas>
+    </div>
+    <div class="grafico">
+      <h3>Distribuição por classificação</h3>
+      <div class="dica">Clique em uma fatia para filtrar o painel</div>
+      <canvas id="ch-classificacao" height="220"></canvas>
+    </div>
+  </section>
+
+  <!-- Gráficos linha 2 -->
+  <section class="linha-graficos g-2">
+    <div class="grafico">
+      <h3>Top 10 motoristas</h3>
+      <div class="dica">Clique em uma barra para ver só as infrações do motorista</div>
+      <canvas id="ch-motoristas" height="220"></canvas>
+    </div>
+    <div class="grafico">
+      <h3>Locais com mais ocorrências</h3>
+      <div class="dica">Pontos que concentram infrações no período</div>
+      <canvas id="ch-locais" height="220"></canvas>
+    </div>
+  </section>
+
+  <!-- Tabela -->
+  <section class="secao-tabela">
+    <div class="tabela-topo">
+      <h3>Detalhamento das infrações</h3>
+      <span class="cont" id="tabela-cont"></span>
+      <div class="acoes">
+        <button id="btn-csv" class="btn btn-claro">Exportar CSV</button>
+        <button id="btn-imprimir" class="btn btn-claro">Imprimir</button>
+      </div>
+    </div>
+    <div class="rolagem">
+      <table id="tabela">
+        <thead>
+          <tr>
+            <th data-col="data">Data <span class="seta"></span></th>
+            <th data-col="hora">Hora <span class="seta"></span></th>
+            <th data-col="motorista">Motorista <span class="seta"></span></th>
+            <th data-col="veiculo">Veículo <span class="seta"></span></th>
+            <th data-col="localizacao">Local <span class="seta"></span></th>
+            <th data-col="lista">Origem <span class="seta"></span></th>
+            <th data-col="velocidade">Velocidade <span class="seta"></span></th>
+            <th data-col="excesso">Excesso <span class="seta"></span></th>
+            <th data-col="classificacao">Classificação <span class="seta"></span></th>
+            <th data-col="notificado">Notificação <span class="seta"></span></th>
+          </tr>
+        </thead>
+        <tbody id="tabela-corpo"></tbody>
+      </table>
+    </div>
+    <div class="paginacao">
+      <span id="pag-info"></span>
+      <button id="pag-ant">‹ Anterior</button>
+      <button id="pag-prox">Próxima ›</button>
+    </div>
+  </section>
+
+  <!-- Painel de conexão -->
+  <details class="conexao" id="painel-conexao">
+    <summary><span class="indicador">›</span> Conectar dados reais (webhook Make)</summary>
+    <div class="conexao-corpo">
+      <p><b>Integração já configurada.</b> O cenário <code>📊 Painel de Infrações — API de Dados (Webhook)</code>
+      (ID 6045567) foi criado na sua conta Make e está <b>ativo</b>. Ele usa a conexão SharePoint existente,
+      lê as três listas (Área Restrita, Velocidade Excedida e Cadastro Motoristas) e responde a este painel —
+      <b>somente leitura</b>, sem tocar no cenário de notificação por WhatsApp.</p>
+      <p>Cada clique em <b>Atualizar dados</b> consome <b>8 créditos Make</b> (1 webhook + 3 leituras + 3 conversões JSON + 1 resposta)
+      e traz o retrato atual de até 500 itens por lista.</p>
+      <div class="linha-url">
+        <input type="url" id="input-webhook" placeholder="(preenchida automaticamente após o login)" aria-label="URL do webhook Make">
+        <button id="btn-testar" class="btn btn-amarelo">Testar conexão</button>
+      </div>
+      <p><b>Se a atualização falhar</b>, verifique no Make se o cenário ID 6045567 está ligado (ON) e se a conexão
+      "Nova Macabu SharePoint" está válida. Importante: este arquivo deve ser aberto <b>diretamente no navegador</b>
+      (Chrome/Edge) — dentro de visualizadores restritos a chamada externa é bloqueada.</p>
+      <p><b>Segurança:</b> a URL do webhook não aparece no código-fonte — ela é decifrada pela senha
+      no momento do login (AES-256). Para revogar todo acesso, exclua o webhook no Make; para trocar senhas ou
+      adicionar usuários, gere novos blocos criptografados (peça ao assistente do projeto).</p>
+    </div>
+  </details>
+
+  <footer class="rodape">
+    <span>Fontes: SharePoint · Área Restrita, Velocidade Excedida e Cadastro Motoristas (site Operacional)</span>
+    <span>Protótipo — Projeto Notificação de Infrações · Parte 12</span>
+  </footer>
+</div>
+<script>
+/* ═══════════════ CONFIGURAÇÃO ═══════════════
+   Cole aqui a URL do webhook Make para que o painel
+   já abra conectado (opcional — também dá para informar
+   pela interface, no painel "Conectar dados reais").   */
+const WEBHOOK_URL = ""; // a URL real é decifrada no login (ver USUARIOS)
+const PBKDF2_ITER = 310000;
+const USUARIOS = [{"user": "Administrador", "salt": "DJGK4OtpN204I+TBXUMHFQ==", "iv": "qV1pg+RdX1zGmiXo", "ct": "agG6tdMEVOLOJaJZAFE8BJLwhHfPsFg6f/TDH7faftsd9+/KdjVEFtLR1AT2olVzWFQRhiuo91iYttVp//KQDpetdnp0fAn861E=", "salt2": "UotusTvhj28AringZxaCtQ==", "iv2": "erNHFV+kmgZXrcDw", "ct2": "4aleQayyAJi1OhbExiJibZrARqfvP2Ue4iWRG1bBHFBQ4udbszGQIC3E9YnvmOtd42CKCjaOaNxXazbvNIor6tsdE70x2Z/eis4="}, {"user": "Ricardo", "salt": "UHY5gp55rE+mx8BJas/7+Q==", "iv": "PVe+xTFpCsFTpObe", "ct": "Z9pVN8/y3bLCV72T+8mvdfexBKDNnF9SFw7LhC+QIfaqCJTwmLJqFLoeysFXrjbgWk5tHe6H+ERG1JB5pIhNmKCkg0ZAIC776Sc=", "salt2": "9BMduzTubbxk5G2fhB9rdA==", "iv2": "Z6VpTjJSxoFWkTej", "ct2": "AdNW/wyO0qxsQcpcRamFP2SgjXqZaMAf9pPVjwoF/zQZ5o5OlrnMFUw7o7yD0Ge/FXl5KOj1NoZJ13EHBeEKFGFee9Wpb0IyxDo="}];
+
+/* ─────────────── Constantes ─────────────── */
+const CORES = { "Gravíssima":"#8E1616", "Grave":"#D9480F", "Média":"#E8A013", "Baixa":"#2F7D4F" };
+const ORDEM_CLASS = ["Gravíssima","Grave","Média","Baixa"];
+const nf = new Intl.NumberFormat("pt-BR");
+const $  = id => document.getElementById(id);
+const esc = v => String(v==null?"":v).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+Chart.defaults.font.family = '"Saira", system-ui, sans-serif';
+Chart.defaults.color = "#5C6670";
+Chart.defaults.plugins.legend.labels.boxWidth = 12;
+
+/* ─────────────── Dados de demonstração ───────────────
+   Gerados de forma determinística com a MESMA estrutura
+   das listas reais do SharePoint (Operacional).          */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function chaveDia(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
+
+const DEMO_MOTORISTAS = [
+  ["305","Julio Batista Maria","Ativo"],   ["118","Carlos Pereira Nunes","Ativo"],
+  ["214","Marcos Antônio Silva","Ativo"],  ["097","Roberto Faria Lima","Ativo"],
+  ["233","Anderson Luiz Costa","Ativo"],   ["152","Paulo Sérgio Ramos","Inativo"],
+  ["261","José Ricardo Alves","Ativo"],    ["189","Fábio Henrique Dias","Ativo"],
+  ["224","Luciano Barbosa","Ativo"],       ["143","Wagner Souza Melo","Ativo"],
+  ["276","Éverton Cardoso","Ativo"],       ["131","Sandro Oliveira","Inativo"],
+  ["208","Diego Martins Rocha","Ativo"],   ["167","Rafael Gomes Pinto","Ativo"]
+].map(([matricula,nome,situacao],i)=>({matricula,nome,situacao,contato:"55229"+String(88000000+i*13457).slice(0,8)}));
+
+const DEMO_LOCAIS = [
+  {n:"Trevo Carapebus",              lim:40, lista:"Área Restrita",       p:.20},
+  {n:"Área de Carregamento — Usina", lim:20, lista:"Área Restrita",       p:.14},
+  {n:"Portaria Principal",           lim:20, lista:"Área Restrita",       p:.10},
+  {n:"Pátio da Balança",             lim:30, lista:"Área Restrita",       p:.08},
+  {n:"BR-101 · km 12 — Nova Macabu", lim:60, lista:"Velocidade Excedida", p:.18},
+  {n:"RJ-182 · Trecho Urbano",       lim:40, lista:"Velocidade Excedida", p:.13},
+  {n:"Acesso Distrito Industrial",   lim:40, lista:"Velocidade Excedida", p:.10},
+  {n:"Rod. Serramar · km 8",         lim:60, lista:"Velocidade Excedida", p:.07}
+];
+const DEMO_VEICULOS = ["221021","221034","220987","221102","220875","221150","220943","221078"];
+
+function gerarDemo(){
+  const rnd = mulberry32(20260825);
+  const escolher = (arr,pesos)=>{let s=0,r=rnd()*pesos.reduce((a,b)=>a+b,0);for(let i=0;i<arr.length;i++){s+=pesos[i];if(r<=s)return arr[i]}return arr[arr.length-1]};
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const matriculas = DEMO_MOTORISTAS.map(m=>m.matricula).concat(["402","415","388"]); // 3 não cadastradas
+  const pesosMot = matriculas.map((_,i)=> i>=14 ? .35 : Math.pow(.82,i));
+  const infracoes = []; let id = 6400;
+  for(let d=59; d>=0; d--){
+    const dia = new Date(hoje); dia.setDate(hoje.getDate()-d);
+    const util = dia.getDay()>=1 && dia.getDay()<=5;
+    const qtd = Math.floor(rnd()*(util?6:3)) + (util?1:0);
+    for(let k=0;k<qtd;k++){
+      const loc = escolher(DEMO_LOCAIS, DEMO_LOCAIS.map(l=>l.p));
+      const r = rnd();
+      const pct = r<.55 ? .03+rnd()*.15 : r<.80 ? .18+rnd()*.27 : r<.95 ? .45+rnd()*.35 : .80+rnd()*.40;
+      const vel = Math.max(loc.lim+3, Math.round(loc.lim*(1+pct)));
+      const p100 = (vel-loc.lim)/loc.lim*100;
+      const cls = p100<=10?"Baixa":p100<=20?"Média":p100<=50?"Grave":"Gravíssima";
+      const mat = escolher(matriculas, pesosMot);
+      const h = 5+Math.floor(rnd()*17), mi = Math.floor(rnd()*60);
+      const idade = d;
+      const cadastrado = +mat<400;
+      const notificado = idade>=5 ? true : idade>=2 ? (cadastrado ? rnd()<.95 : rnd()<.85) : rnd()<.25;
+      infracoes.push({
+        id:String(++id), lista:loc.lista, matricula:mat,
+        veiculo:DEMO_VEICULOS[Math.floor(rnd()*DEMO_VEICULOS.length)],
+        localizacao:loc.n,
+        data:chaveDia(dia),
+        hora:String(h).padStart(2,"0")+":"+String(mi).padStart(2,"0"),
+        velocidade:vel, limite:loc.lim, classificacao:cls, notificado
+      });
+    }
+  }
+  return { geradoEm:new Date().toISOString(), infracoes, motoristas:DEMO_MOTORISTAS };
+}
+
+/* ─────────────── Estado ─────────────── */
+let payload = gerarDemo();
+let modo = "demo";                 // demo | live | erro
+let webhookUrl = WEBHOOK_URL;
+let webhookEnvioUrl = null;
+let dados = [];                    // infrações normalizadas
+let mapaMotoristas = new Map();
+let ordenacao = { col:"data", asc:false };
+let pagina = 0;
+const POR_PAGINA = 25;
+let charts = {};
+
+function parseDia(s){ const [a,m,d]=s.split("-").map(Number); return new Date(a,m-1,d); }
+function normTxt(s){ return String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""); }
+
+function normCls(c){ const t=normTxt(c);
+  return t.indexOf("graviss")===0?"Gravíssima" : t.indexOf("grav")===0?"Grave" : t.indexOf("med")===0?"Média" : "Baixa"; }
+
+/* Aceita dois formatos: o contrato simples ({infracoes,motoristas}) e o formato
+   bruto do cenário Make ({areaRestrita, velocidadeExcedida, cadastro} com corpos Graph). */
+function adaptarPayload(p){
+  if(p && Array.isArray(p.infracoes)) return p;
+  if(p && (p.areaRestrita || p.velocidadeExcedida)){
+    const inf = [];
+    ((p.areaRestrita||{}).value||[]).forEach(it=>{ const f=it.fields||{};
+      inf.push({ id:String(it.id||f.id||""), lista:"Área Restrita",
+        matricula:String(f.Matricula??""), motoristaLinha:f.Motorista&&f.Motorista!=="-"?f.Motorista:null,
+        veiculo:f.Title||"", localizacao:f["Localiza_x00e7__x00e3_o"]||"—",
+        data:String(f.Data||"").slice(0,10), hora:String(f.Hora||"").slice(0,5),
+        velocidade:Math.round(Number(f.Velocidade)||0), limite:Number(f.LimitedeVelocidade)||0,
+        classificacao:normCls(f["Classifica_x00e7__x00e3_o"]), notificado:f.Notificado===true }); });
+    ((p.velocidadeExcedida||{}).value||[]).forEach(it=>{ const f=it.fields||{};
+      inf.push({ id:String(it.id||f.id||""), lista:"Velocidade Excedida",
+        matricula:String(f.Matricula??""), motoristaLinha:f.Motorista&&f.Motorista!=="-"?f.Motorista:null,
+        veiculo:f.Title||"", localizacao:f["Localiza_x00e7__x00e3_o"]||"—",
+        data:String(f["InicioViola_x00e7__x00e3_o"]||"").slice(0,10), hora:String(f.HoraInicial||"").slice(0,5),
+        velocidade:Math.round(Number(f["VelocidadeM_x00e1_xima"])||0), limite:85,
+        classificacao:normCls(f["Classifica_x00e7__x00e3_o"]), notificado:f.Notificado===true }); });
+    const motoristas = (((p.cadastro||{}).value)||[]).map(it=>{ const f=it.fields||{};
+      return { matricula:String(f.Matricula??""), nome:f.Title||"", contato:f.Contato||"", situacao:f["Situa_x00e7__x00e3_o"]||"" }; });
+    return { geradoEm:p.geradoEm, infracoes:inf.filter(i=>i.data && /^\d{4}-\d{2}-\d{2}$/.test(i.data)), motoristas };
+  }
+  return { infracoes:[], motoristas:[] };
+}
+
+function normalizar(){
+  payload = Object.assign({}, payload, adaptarPayload(payload));
+  mapaMotoristas = new Map((payload.motoristas||[]).map(m=>[String(m.matricula),m]));
+  dados = (payload.infracoes||[]).map(i=>{
+    const m = mapaMotoristas.get(String(i.matricula));
+    const vel = Number(i.velocidade)||0, lim = Number(i.limite)||0;
+    return { ...i,
+      matricula:String(i.matricula||""),
+      motorista: i.motoristaLinha || (m ? m.nome : null),
+      cadastrado: !!m,
+      situacao:  m ? m.situacao : null,
+      velocidade:vel, limite:lim, excesso:Math.max(0, vel-lim),
+      _dia: parseDia(i.data),
+      notificado: i.notificado===true || i.notificado==="true"
+    };
+  }).sort((a,b)=> b._dia-a._dia || (b.hora>a.hora?1:-1));
+}
+
+/* ─────────────── Filtros ─────────────── */
+function lerFiltros(){
+  return {
+    periodo:+$("f-periodo").value,
+    classificacao:$("f-classificacao").value,
+    lista:$("f-lista").value,
+    motorista:$("f-motorista").value,
+    notif:$("f-notif").value,
+    busca:normTxt($("f-busca").value.trim())
+  };
+}
+function filtrarBase(f){ // todos os filtros, exceto período
+  return dados.filter(i=>{
+    if(f.classificacao && i.classificacao!==f.classificacao) return false;
+    if(f.lista && i.lista!==f.lista) return false;
+    if(f.motorista){
+      if(f.motorista==="__nc"){ if(i.cadastrado) return false; }
+      else if(i.matricula!==f.motorista) return false;
+    }
+    if(f.notif==="sim" && !i.notificado) return false;
+    if(f.notif==="nao" &&  i.notificado) return false;
+    if(f.busca){
+      const alvo = normTxt([i.motorista,i.matricula,i.veiculo,i.localizacao,i.lista].join(" "));
+      if(!alvo.includes(f.busca)) return false;
+    }
+    return true;
+  });
+}
+function janelas(f){
+  const hoje = new Date(); hoje.setHours(23,59,59,999);
+  if(!f.periodo) return { ini:null, fim:hoje, iniAnt:null, fimAnt:null };
+  const ini = new Date(hoje); ini.setDate(hoje.getDate()-f.periodo+1); ini.setHours(0,0,0,0);
+  const fimAnt = new Date(ini); fimAnt.setMilliseconds(-1);
+  const iniAnt = new Date(ini); iniAnt.setDate(ini.getDate()-f.periodo);
+  return { ini, fim:hoje, iniAnt, fimAnt };
+}
+
+/* ─────────────── Render geral ─────────────── */
+function renderizar(){
+  const f = lerFiltros();
+  const base = filtrarBase(f);
+  const j = janelas(f);
+  const atual = j.ini ? base.filter(i=>i._dia>=j.ini && i._dia<=j.fim) : base;
+  const anterior = j.iniAnt ? base.filter(i=>i._dia>=j.iniAnt && i._dia<=j.fimAnt) : [];
+  renderKPIs(atual, anterior, !!j.ini);
+  renderCharts(atual, j);
+  pagina = 0;
+  renderTabela(atual);
+  window.__filtrado = atual; // p/ exportação CSV
+}
+
+function renderKPIs(atual, anterior, temComparacao){
+  $("kpi-total").textContent = nf.format(atual.length);
+  const varEl = $("kpi-total-var");
+  if(temComparacao && anterior.length){
+    const v = (atual.length-anterior.length)/anterior.length*100;
+    varEl.textContent = (v>=0?"▲ +":"▼ ")+v.toFixed(0)+"% vs período anterior";
+    varEl.className = "sub "+(v>=0?"up":"down");
+  } else if(temComparacao){
+    varEl.textContent = anterior.length===0&&atual.length>0 ? "sem registros no período anterior" : "";
+    varEl.className="sub";
+  } else { varEl.textContent="todo o histórico"; varEl.className="sub"; }
+
+  const graves = atual.filter(i=>i.classificacao==="Grave"||i.classificacao==="Gravíssima").length;
+  $("kpi-graves").textContent = nf.format(graves);
+  $("kpi-graves-sub").textContent = atual.length? (graves/atual.length*100).toFixed(0)+"% do total" : "—";
+
+  const mots = new Set(atual.map(i=>i.matricula));
+  const nc = new Set(atual.filter(i=>!i.cadastrado).map(i=>i.matricula||i.id)).size;
+  $("kpi-motoristas").textContent = nf.format(mots.size);
+  $("kpi-motoristas-sub").textContent = nc? nc+" matrícula(s) fora do Cadastro" : "todos no Cadastro";
+
+  const excM = atual.length? atual.reduce((s,i)=>s+i.excesso,0)/atual.length : 0;
+  $("kpi-excesso").textContent = "+"+excM.toFixed(0)+" km/h";
+
+  const notif = atual.filter(i=>i.notificado).length;
+  $("kpi-notif").textContent = atual.length? (notif/atual.length*100).toFixed(0)+"%" : "—";
+  $("kpi-notif-sub").textContent = nf.format(atual.length-notif)+" pendente(s)";
+}
+
+/* ─────────────── Gráficos ─────────────── */
+function destruir(id){ if(charts[id]){ charts[id].destroy(); delete charts[id]; } }
+const fmtDia = d => String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0");
+
+function renderCharts(atual, j){
+  /* Tendência (barras empilhadas por dia; semanal se histórico longo) */
+  let ini = j.ini, fim = new Date(); fim.setHours(0,0,0,0);
+  if(!ini){ ini = atual.length? new Date(Math.min(...atual.map(i=>+i._dia))) : new Date(fim); }
+  const dias = Math.round((fim-ini)/864e5)+1;
+  const semanal = dias>92;
+  const chaves = [], rotulos = [];
+  if(semanal){
+    const c = new Date(ini); c.setDate(c.getDate()-((c.getDay()+6)%7)); // segunda-feira
+    while(c<=fim){ chaves.push(chaveDia(c)); rotulos.push("sem. "+fmtDia(c)); c.setDate(c.getDate()+7); }
+  } else {
+    const c = new Date(ini);
+    while(c<=fim){ chaves.push(chaveDia(c)); rotulos.push(fmtDia(c)); c.setDate(c.getDate()+1); }
+  }
+  const idx = new Map(chaves.map((k,i)=>[k,i]));
+  const series = Object.fromEntries(ORDEM_CLASS.map(c=>[c, new Array(chaves.length).fill(0)]));
+  atual.forEach(i=>{
+    let k = i.data;
+    if(semanal){ const d=new Date(i._dia); d.setDate(d.getDate()-((d.getDay()+6)%7)); k=chaveDia(d); }
+    const p = idx.get(k); if(p!=null) series[i.classificacao][p]++;
+  });
+  destruir("tendencia");
+  charts.tendencia = new Chart($("ch-tendencia"),{ type:"bar",
+    data:{ labels:rotulos, datasets:["Baixa","Média","Grave","Gravíssima"].map(c=>({label:c,data:series[c],backgroundColor:CORES[c],stack:"s",borderRadius:2})) },
+    options:{ responsive:true, animation:false, interaction:{mode:"index"},
+      plugins:{ legend:{position:"bottom"} },
+      scales:{ x:{stacked:true, grid:{display:false}, ticks:{maxTicksLimit:14}}, y:{stacked:true, beginAtZero:true, ticks:{precision:0}} } } });
+
+  /* Classificação (rosca clicável) */
+  const porCls = ORDEM_CLASS.map(c=>atual.filter(i=>i.classificacao===c).length);
+  destruir("classificacao");
+  charts.classificacao = new Chart($("ch-classificacao"),{ type:"doughnut",
+    data:{ labels:ORDEM_CLASS, datasets:[{data:porCls, backgroundColor:ORDEM_CLASS.map(c=>CORES[c]), borderWidth:2, borderColor:"#fff"}] },
+    options:{ responsive:true, animation:false, cutout:"58%",
+      plugins:{ legend:{position:"bottom"},
+        tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${nf.format(ctx.raw)} (${atual.length?(ctx.raw/atual.length*100).toFixed(0):0}%)`}} },
+      onClick:(e,els)=>{ if(els.length){ const c=ORDEM_CLASS[els[0].index];
+        $("f-classificacao").value = $("f-classificacao").value===c ? "" : c; renderizar(); } } } });
+
+  /* Top 10 motoristas (barras horizontais empilhadas, clicável) */
+  const porMot = new Map();
+  atual.forEach(i=>{ const k=i.matricula;
+    if(!porMot.has(k)) porMot.set(k,{nome:i.motorista, mat:k, sev:0, leve:0});
+    const o = porMot.get(k);
+    (i.classificacao==="Grave"||i.classificacao==="Gravíssima") ? o.sev++ : o.leve++; });
+  const top = [...porMot.values()].sort((a,b)=>(b.sev+b.leve)-(a.sev+a.leve)).slice(0,10);
+  destruir("motoristas");
+  charts.motoristas = new Chart($("ch-motoristas"),{ type:"bar",
+    data:{ labels:top.map(t=>t.nome ? t.nome : "Mat. "+(t.mat||"?")+" (não cadastrado)"),
+      datasets:[ {label:"Grave + Gravíssima", data:top.map(t=>t.sev), backgroundColor:"#D9480F", stack:"m", borderRadius:2},
+                 {label:"Média + Baixa",      data:top.map(t=>t.leve), backgroundColor:"#C4CDC6", stack:"m", borderRadius:2} ] },
+    options:{ indexAxis:"y", responsive:true, animation:false,
+      plugins:{ legend:{position:"bottom"} },
+      scales:{ x:{stacked:true, beginAtZero:true, ticks:{precision:0}}, y:{stacked:true, grid:{display:false}} },
+      onClick:(e,els)=>{ if(els.length){ const t=top[els[0].index];
+        const alvo = t.nome ? t.mat : "__nc";
+        $("f-motorista").value = $("f-motorista").value===alvo ? "" : alvo; renderizar(); } } } });
+
+  /* Locais */
+  const porLoc = new Map();
+  atual.forEach(i=>porLoc.set(i.localizacao,(porLoc.get(i.localizacao)||0)+1));
+  const locs = [...porLoc.entries()].sort((a,b)=>b[1]-a[1]).slice(0,8);
+  destruir("locais");
+  charts.locais = new Chart($("ch-locais"),{ type:"bar",
+    data:{ labels:locs.map(l=>l[0]), datasets:[{data:locs.map(l=>l[1]), backgroundColor:"#3A4854", borderRadius:2}] },
+    options:{ indexAxis:"y", responsive:true, animation:false,
+      plugins:{ legend:{display:false} },
+      scales:{ x:{beginAtZero:true, ticks:{precision:0}}, y:{grid:{display:false}} } } });
+}
+
+/* ─────────────── Tabela ─────────────── */
+const claseCss = c => ({"Gravíssima":"gravissima","Grave":"grave","Média":"media","Baixa":"baixa"})[c]||"baixa";
+function renderTabela(atual){
+  const {col,asc} = ordenacao;
+  const chave = i => col==="motorista" ? normTxt(i.motorista||("zzz "+i.matricula))
+              : col==="data" ? +i._dia : col==="excesso" ? i.excesso
+              : col==="velocidade" ? i.velocidade : normTxt(i[col]);
+  const linhas = [...atual].sort((a,b)=>{ const x=chave(a),y=chave(b); return (x<y?-1:x>y?1:0)*(asc?1:-1); });
+
+  document.querySelectorAll("thead th").forEach(th=>{
+    th.querySelector(".seta").textContent = th.dataset.col===col ? (asc?"▲":"▼") : ""; });
+
+  const totalPag = Math.max(1, Math.ceil(linhas.length/POR_PAGINA));
+  pagina = Math.min(pagina, totalPag-1);
+  const vis = linhas.slice(pagina*POR_PAGINA, pagina*POR_PAGINA+POR_PAGINA);
+
+  $("tabela-cont").textContent = nf.format(linhas.length)+" registro(s) no filtro";
+  $("pag-info").textContent = linhas.length? `Exibindo ${pagina*POR_PAGINA+1}–${pagina*POR_PAGINA+vis.length} de ${nf.format(linhas.length)}` : "";
+  $("pag-ant").disabled = pagina===0;
+  $("pag-prox").disabled = pagina>=totalPag-1;
+
+  const corpo = $("tabela-corpo");
+  if(!linhas.length){ corpo.innerHTML = `<tr><td colspan="10" class="vazio">Nenhuma infração encontrada com os filtros atuais.</td></tr>`; return; }
+  corpo.innerHTML = vis.map(i=>{
+    const cs = claseCss(i.classificacao);
+    const nome = i.motorista
+      ? `<div class="mot-nome">${esc(i.motorista)}</div><div class="mot-mat">Mat. ${esc(i.matricula)||"—"}${!i.cadastrado?" · <span class=\"nao-cadastrado\">fora do Cadastro</span>":(i.situacao&&i.situacao!=="Ativo"?" · "+i.situacao:"")}</div>`
+      : `<div class="mot-nome nao-cadastrado">não cadastrado</div><div class="mot-mat">Mat. ${esc(i.matricula)||"—"}</div>`;
+    return `<tr>
+      <td>${fmtDia(i._dia)}/${i._dia.getFullYear()}</td>
+      <td>${i.hora}</td>
+      <td>${nome}</td>
+      <td>${esc(i.veiculo)||"—"}</td>
+      <td>${esc(i.localizacao)}</td>
+      <td><span class="badge b-lista">${i.lista}</span></td>
+      <td><span class="vel-celula"><span class="vel-num">${i.velocidade}</span><span style="color:var(--texto-2);font-size:11px">km/h</span><span class="placa-limite" title="Limite da via: ${i.limite} km/h">${i.limite}</span></span></td>
+      <td><span class="excesso e-${cs}">+${i.excesso} km/h</span></td>
+      <td><span class="badge b-${cs}">${i.classificacao}</span></td>
+      <td>${i.notificado?'<span class="notif sim">● Enviada</span>':'<span class="notif nao">○ Pendente</span>'}</td>
+    </tr>`; }).join("");
+}
+
+/* ─────────────── Atualização via webhook ─────────────── */
+function setStatus(m, txt){
+  modo = m;
+  const pill = $("status-pill");
+  pill.className = "pill "+(m==="live"?"live":m==="erro"?"erro":"demo");
+  $("status-texto").textContent = txt;
+}
+function marcaAtualizado(orig){
+  let d = payload.geradoEm ? new Date(payload.geradoEm) : new Date();
+  if(isNaN(+d)) d = new Date();
+  $("atualizado-em").textContent = (orig==="live"?"Dados do SharePoint · ":"Demonstração · ")+
+    "atualizado em "+d.toLocaleDateString("pt-BR")+" às "+d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+}
+function popularMotoristasSelect(){
+  const sel = $("f-motorista"); const atual = sel.value;
+  const vistos = new Map();
+  dados.forEach(i=>{ if(i.matricula && !vistos.has(i.matricula)) vistos.set(i.matricula, {n:i.motorista, c:i.cadastrado}); });
+  const cad = [...vistos.entries()].filter(([,v])=>v.n).sort((a,b)=>a[1].n.localeCompare(b[1].n,"pt-BR")).map(([m,v])=>[m,v.n]);
+  const temNC = dados.some(i=>!i.cadastrado);
+  sel.innerHTML = '<option value="">Todos</option>' +
+    cad.map(([m,n])=>`<option value="${m}">${n}</option>`).join("") +
+    (temNC?'<option value="__nc">— Não cadastrados</option>':"");
+  if([...sel.options].some(o=>o.value===atual)) sel.value = atual;
+}
+function aplicarPayload(p, origem){
+  payload = p; normalizar(); popularMotoristasSelect(); renderizar(); marcaAtualizado(origem);
+  if(origem==="live"){
+    setStatus("live","Conectado ao SharePoint");
+    $("aviso-demo").classList.add("oculto"); $("aviso-erro").classList.add("oculto");
+  }
+}
+async function buscar(url){
+  const ctl = new AbortController(); const t = setTimeout(()=>ctl.abort(), 20000);
+  try{
+    const r = await fetch(url, {signal:ctl.signal});
+    if(!r.ok) throw new Error("O webhook respondeu com status "+r.status+".");
+    const p = await r.json();
+    const formatoOk = Array.isArray(p.infracoes) || p.areaRestrita || p.velocidadeExcedida;
+    if(!formatoOk) throw new Error("A resposta do webhook não está em um formato reconhecido — confira o Body do módulo Webhook Response no Make.");
+    return p;
+  } finally { clearTimeout(t); }
+}
+async function atualizar(url){
+  const btnA = $("btn-atualizar"), btnT = $("btn-testar");
+  btnA.disabled = btnT.disabled = true;
+  const rot = btnA.innerHTML; btnA.innerHTML = '<span class="giro">↻</span> Buscando…';
+  try{
+    const p = await buscar(url);
+    webhookUrl = url;
+    aplicarPayload(p,"live");
+  }catch(e){
+    const cors = e.name==="TypeError" || e.name==="AbortError";
+    const msg = e.name==="AbortError" ? "O webhook demorou mais de 20s para responder — verifique se o cenário Make está ativo."
+      : cors ? "Não foi possível alcançar o webhook. Causas comuns: URL incorreta, cenário Make desligado, falta do header <b>Access-Control-Allow-Origin: *</b> no Webhook Response, ou o arquivo está aberto dentro de um ambiente que bloqueia chamadas externas (abra o HTML diretamente no navegador)."
+      : e.message;
+    $("aviso-erro-texto").innerHTML = "<b>Falha ao atualizar.</b> "+msg+" O painel continua exibindo os últimos dados carregados.";
+    $("aviso-erro").classList.remove("oculto");
+    if(modo!=="live") setStatus("erro","Falha na conexão");
+  } finally {
+    btnA.disabled = btnT.disabled = false; btnA.innerHTML = rot;
+  }
+}
+
+/* ─────────────── Exportar / imprimir ─────────────── */
+function exportarCSV(){
+  const rows = window.__filtrado || [];
+  const cab = ["Data","Hora","Motorista","Matricula","Situacao","Veiculo","Local","Origem","Velocidade (km/h)","Limite (km/h)","Excesso (km/h)","Classificacao","Notificado"];
+  const esc = v => '"'+String(v==null?"":v).replace(/"/g,'""')+'"';
+  const linhas = rows.map(i=>[ i.data.split("-").reverse().join("/"), i.hora, i.motorista||"não cadastrado", i.matricula,
+    i.situacao||"", i.veiculo||"", i.localizacao, i.lista, i.velocidade, i.limite, i.excesso, i.classificacao, i.notificado?"Sim":"Não" ].map(esc).join(";"));
+  const csv = "\uFEFF"+cab.map(esc).join(";")+"\n"+linhas.join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
+  a.download = "infracoes_nova_macabu_"+new Date().toISOString().slice(0,10)+".csv";
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+/* ─────────────── Disparo do envio de notificações ─────────────── */
+function bannerOk(html){ $("aviso-ok-texto").innerHTML=html; $("aviso-ok").classList.remove("oculto"); $("aviso-erro").classList.add("oculto"); }
+function bannerErro(html){ $("aviso-erro-texto").innerHTML=html; $("aviso-erro").classList.remove("oculto"); $("aviso-ok").classList.add("oculto"); }
+async function dispararEnvio(){
+  if(!webhookUrl) return;
+  const pend = dados.filter(i=>!i.notificado).length;
+  const msg = "Disparar o envio de notificações por WhatsApp agora?\n\nMensagens reais serão enviadas aos motoristas com infrações pendentes" +
+              (pend? " — no último retrato havia "+pend+" item(ns) não notificado(s)." : ".");
+  if(!window.confirm(msg)) return;
+  const btn=$("btn-disparar"); const rot=btn.innerHTML;
+  btn.disabled=true; btn.innerHTML='<span class="giro">↻</span> Disparando…';
+  try{
+    const ctl=new AbortController(); const t=setTimeout(()=>ctl.abort(),30000);
+    if(!webhookEnvioUrl) throw new Error("URL de disparo não disponível — faça login novamente.");
+    const r = await fetch(webhookEnvioUrl, {method:"POST", signal:ctl.signal});
+    clearTimeout(t);
+    if(r.ok || r.status === 200){
+      bannerOk("<b>Envio disparado com sucesso!</b> O cenário de notificações está rodando no Make. Aguarde 1–2 minutos e clique em <b>↻ Atualizar dados</b> para ver os itens marcados como notificados.");
+    } else {
+      bannerErro("<b>Resposta inesperada ao disparar</b> (status "+r.status+"). Verifique se o cenário de envio está ativo no Make.");
+    }
+  }catch(e){
+    bannerErro(e.name==="AbortError"
+      ? "<b>O disparo demorou mais de 30s.</b> O envio pode ter iniciado mesmo assim — confira o histórico do cenário no Make antes de tentar de novo."
+      : "<b>Não foi possível alcançar o webhook para o disparo.</b> Verifique a conexão e se o cenário do painel está ligado no Make.");
+  } finally { btn.disabled=false; btn.innerHTML=rot; }
+}
+
+/* ─────────────── Eventos / inicialização ─────────────── */
+["f-periodo","f-classificacao","f-lista","f-motorista","f-notif"].forEach(id=>$(id).addEventListener("change",renderizar));
+$("f-busca").addEventListener("input",()=>{ clearTimeout(window.__deb); window.__deb=setTimeout(renderizar,250); });
+$("btn-limpar").addEventListener("click",()=>{
+  $("f-periodo").value="30"; ["f-classificacao","f-lista","f-motorista","f-notif","f-busca"].forEach(id=>$(id).value="");
+  renderizar(); });
+document.querySelectorAll("thead th").forEach(th=>th.addEventListener("click",()=>{
+  const c = th.dataset.col;
+  ordenacao = { col:c, asc: ordenacao.col===c ? !ordenacao.asc : (c==="data"?false:true) };
+  renderTabela(window.__filtrado||[]); }));
+$("pag-ant").addEventListener("click",()=>{ pagina--; renderTabela(window.__filtrado||[]); });
+$("pag-prox").addEventListener("click",()=>{ pagina++; renderTabela(window.__filtrado||[]); });
+$("btn-disparar").addEventListener("click",dispararEnvio);
+$("btn-csv").addEventListener("click",exportarCSV);
+$("btn-imprimir").addEventListener("click",()=>window.print());
+$("btn-config").addEventListener("click",()=>{ const p=$("painel-conexao"); p.open=true; p.scrollIntoView({behavior:"smooth"}); $("input-webhook").focus(); });
+$("btn-testar").addEventListener("click",()=>{
+  const u = $("input-webhook").value.trim();
+  if(!u){ $("input-webhook").focus(); return; }
+  atualizar(u); });
+$("btn-atualizar").addEventListener("click",()=>{
+  const u = webhookUrl || $("input-webhook").value.trim();
+  if(!u){ $("btn-config").click(); return; }
+  atualizar(u); });
+
+/* ─────────────── Login (a senha decifra a URL do webhook) ─────────────── */
+const b64buf = s => Uint8Array.from(atob(s), c=>c.charCodeAt(0));
+async function decifrarWebhook(user, senha){
+  const u = USUARIOS.find(x => normTxt(x.user) === normTxt(user));
+  if(!u) return null;
+  try{
+    const km = await crypto.subtle.importKey("raw", new TextEncoder().encode(senha), "PBKDF2", false, ["deriveKey"]);
+    const dec = async (salt, iv, ct) => {
+      const k = await crypto.subtle.deriveKey({name:"PBKDF2", salt:b64buf(salt), iterations:PBKDF2_ITER, hash:"SHA-256"}, km, {name:"AES-GCM", length:256}, false, ["decrypt"]);
+      return new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM", iv:b64buf(iv)}, k, b64buf(ct)));
+    };
+    const url      = await dec(u.salt,  u.iv,  u.ct);
+    const urlEnvio = u.ct2 ? await dec(u.salt2, u.iv2, u.ct2) : null;
+    return { nome:u.user, url, urlEnvio };
+  }catch(e){ return null; }
+}
+async function fazerLogin(){
+  const user = $("login-user").value.trim(), senha = $("login-senha").value;
+  const msg = $("login-msg"), btn = $("btn-entrar");
+  if(!user || !senha){ msg.className="msg erro"; msg.textContent="Preencha usuário e senha."; return; }
+  btn.disabled = true; msg.className="msg info"; msg.textContent="Verificando…";
+  const r = await decifrarWebhook(user, senha);
+  btn.disabled = false;
+  if(!r){ msg.className="msg erro"; msg.textContent="Usuário ou senha incorretos."; $("login-senha").value=""; $("login-senha").focus(); return; }
+  msg.className="msg"; msg.textContent="";
+  webhookUrl = r.url;
+  webhookEnvioUrl = r.urlEnvio || null;
+  $("quem").textContent = "👤 " + r.nome;
+  $("input-webhook").value = r.url;
+  $("tela-login").classList.add("oculto");
+  $("app").classList.remove("oculto");
+  renderizar(); marcaAtualizado("demo");
+  atualizar(r.url);
+}
+$("btn-entrar").addEventListener("click", fazerLogin);
+$("login-senha").addEventListener("keydown", e=>{ if(e.key==="Enter") fazerLogin(); });
+$("login-user").addEventListener("keydown", e=>{ if(e.key==="Enter") $("login-senha").focus(); });
+$("btn-sair").addEventListener("click", ()=>location.reload());
+if(!(window.crypto&&crypto.subtle)){ const m=$("login-msg"); m.className="msg erro"; m.textContent="Este navegador não suporta o login seguro — use Chrome, Edge ou Firefox atualizados (via https ou arquivo local)."; }
+
+normalizar(); popularMotoristasSelect();
+$("login-user").focus();
+
+if ("serviceWorker" in navigator && location.protocol === "https:") {
+  navigator.serviceWorker.register("sw.js").catch(()=>{});
+}
+</script>
+</body>
+</html>
